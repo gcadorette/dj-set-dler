@@ -1,6 +1,8 @@
-import argparse, sys, os, re, ftplib
+import argparse, sys, os, re, ftplib, requests
 from pytube import Playlist, YouTube
 import ffmpeg
+import music_tag
+import emoji
 
 DEFAULT_DB_LOCATION = './db.csv'
 DEFAULT_RANGE_IP_MIN = '67'
@@ -33,9 +35,9 @@ config = {
     "yt_playlist_url": Config(DEFAULT_YT_PLAYLIST_URL, 'The Youtube playlist URL. Has to be public.')
 }
 
-
 def check_playlist_for_new_vids(playlist_url, database_location):
     dj_sets = []
+
     with open(database_location, "r", encoding="utf-8") as f:
         for line in f.readlines()[1:]:
             entry = line.replace("\n", "").split(",")
@@ -46,38 +48,88 @@ def check_playlist_for_new_vids(playlist_url, database_location):
     videos_to_add = []
     known_urls = [x.url for x in dj_sets]
     for video in playlist.videos:
-        djset = DjSet(video.embed_url, video.author, video.title.replace(",", ""))
+        title = video.title.replace(",", "").replace("/", "").replace(".", "").replace("#", "")
+        title = emoji.replace_emoji(title, '')
+        djset = DjSet(video.embed_url, video.author, title)
+
         if djset.url not in known_urls:
             videos_to_add.append(djset)
     return videos_to_add
     
 def download_videos_from_playlist(videos_url, destination):
     downloaded = []
+    elems_in_cache_folder = [x.split(".")[0] for x in os.listdir(destination)]
     for video in videos_url:
-        YouTube(video.url).streams.get_audio_only().download(output_path=destination)
-        path = f'{destination}/{video.title}'
-        path = re.sub(r'((?:[^.]*\.+[^.]+)*)(\.*)', r'\1', path) #basically remove the lasting dots
-        path = os.path.abspath(path)
-        #mp4 to mp3
-        ffmpeg.input(f'{path}.mp4').output(f'{path}.mp3').run()
+        dir_name = video.title if video.title[0] != '/' else video.title[1:]
+        dir_name = f'{destination}/{dir_name}/'
+        downloaded.append({"url": dir_name, "title": video.title})
 
-        downloaded.append({"url": f'{path}.mp3', "title": video.title})
+        if video.title in elems_in_cache_folder:
+            continue
+        youtube_vid = YouTube(video.url)
+        thumbnail_url = youtube_vid.thumbnail_url
+        dled_file = youtube_vid.streams.get_audio_only().download(output_path=destination)
+        path = f'{destination}/{video.title}'
+        path = os.path.abspath(path)
+        os.rename(dled_file, f'{path}.mp4')
+
+        if not os.path.exists(dir_name):
+            os.mkdir(dir_name)
+
+        #mp4 to mp3
+        stream = ffmpeg.input(f'{path}.mp4').output(f'{dir_name}/{video.title}.mp3')
+        ffmpeg.run(stream, overwrite_output=True)
         os.remove(f'{path}.mp4')
+
+        img_data = requests.get(thumbnail_url).content
+        
+        song = music_tag.load_file(f'{dir_name}/{video.title}.mp3')
+        song["artist"] = video.artist
+        song["tracktitle"] = video.title
+
+        with open(f'{dir_name}/{video.title}.jpg', "wb") as f:
+            f.write(img_data)
+        with open(f'{dir_name}/{video.title}.jpg', "rb") as f:
+            song["artwork"] = f.read()
+
+        song.save()
+
+        print(f'downloaded {video.title}')
     return downloaded
 
 def move_to_local(videos_downloaded, local_music_folder):
     moved_videos = []
+    destination = os.path.expanduser(local_music_folder) if local_music_folder[0] == '~' else os.path.abspath(local_music_folder)
     for video in videos_downloaded:
-        new_location = os.path.abspath(f'{local_music_folder}/{video["title"]}')
-        os.replace(video["url"], new_location)
-        moved_videos.append({"url": new_location, "title": video.title})
+        new_location = os.path.abspath(f'{destination}/{video["title"]}')
+        if not os.path.exists(new_location):
+            os.replace(video["url"], new_location)
+            moved_videos.append({"url": new_location, "title": video["title"]})
+            print(f'moved {video["title"]} to local folder')
     return moved_videos
 
 def move_to_ftp(ftp_connection, folder, files_to_send):
     ftp_connection.cwd(folder)
+    filetypes = ['mp3', 'jpg']
     for file in files_to_send:
-        with open(file["url"], "rb") as f:
-            ftp_connection.storbinary(f'STOR {file["title"]}.mp3', file)
+        if file["title"] not in ftp_connection.nlst():
+            ftp_connection.mkd(file["title"])
+        else:
+            continue
+        ftp_connection.cwd(file["title"])
+        for filetype in filetypes:
+            filename =  f'{file["title"]}.{filetype}'
+            if filename not in ftp_connection.nlst():
+                with open(f'{file["url"]}/{file["title"]}.{filetype}', "rb") as f:
+                    ftp_connection.storbinary(f'STOR {filename}', f)
+        print(f'moved {file["title"]} to ftp server')
+        ftp_connection.cwd("..")
+
+def save_to_db(database_location, songs_added):
+    for song in songs_added:
+        with open(database_location, "a", encoding="utf-8") as f:
+            f.write(f'{song.url},{song.artist},{song.title}\n')
+        print(f'saved {song.title} to database')
 
 if __name__ == "__main__":
 
@@ -92,19 +144,20 @@ if __name__ == "__main__":
     for config_name, config_obj in config.items():
         val = args_dict[config_name]
         config_obj.val = val
-    min_ip = int(config_obj["range_ip_min"].val)
-    max_ip = int(config_obj["range_ip_max"].val)
+    min_ip = int(config["range_ip_min"].val)
+    max_ip = int(config["range_ip_max"].val)
     ftp = None
     for i in range(min_ip, max_ip + 1):
-        ftp = ftplib.FTP(f'192.168.0.{str(i)}:{config_obj["port"].val}')
         try:
+            ftp = ftplib.FTP()
+            ftp.connect(f'192.168.0.{str(i)}', int(config["port"].val))
             ftp.login()
             break
-        except:
+        except Exception as e:
+            print(e)
             ftp = None
     if ftp is None:
-        print("The ftp connection failed. Either the ftp server is not accessible or the configuration is incorrect. Fix the issue and run the script later.")
-        return
+        sys.exit("The ftp connection failed. Either the ftp server is not accessible or the configuration is incorrect. Fix the issue and run the script later.")
 
     videos_to_add = check_playlist_for_new_vids(config["yt_playlist_url"].val, config["database_location"].val)
 
@@ -112,4 +165,9 @@ if __name__ == "__main__":
         os.mkdir(CACHE)
 
     videos_downloaded = download_videos_from_playlist(videos_to_add, CACHE)
+    videos_moved = move_to_local(videos_downloaded, config["local_music_folder"].val)
+    move_to_ftp(ftp, config["remote_music_folder"].val, videos_moved)
+
+    save_to_db(config["database_location"].val, videos_to_add)
     
+    ftp.close()
