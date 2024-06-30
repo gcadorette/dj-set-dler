@@ -11,6 +11,7 @@ DEFAULT_PORT = '9999'
 DEFAULT_LOCAL = "~/Music"
 DEFAULT_REMOTE = "Music"
 DEFAULT_YT_PLAYLIST_URL = "https://www.youtube.com/playlist?list=PLMr2Sm7Ci5lX5kMzWQ_f7zmAhIXmN3iua"
+DEFAULT_POLLING = 30
 CACHE = "./.cache"
 
 class Config:
@@ -32,7 +33,8 @@ config = {
     "port": Config(DEFAULT_PORT, 'Change the maximum value of the range checked for the ftp server. '),
     "local_music_folder": Config(DEFAULT_LOCAL, 'The local folder to add the set to.'),
     "remote_music_folder": Config(DEFAULT_REMOTE, 'The remote to add the set to.'),
-    "yt_playlist_url": Config(DEFAULT_YT_PLAYLIST_URL, 'The Youtube playlist URL. Has to be public.')
+    "yt_playlist_url": Config(DEFAULT_YT_PLAYLIST_URL, 'The Youtube playlist URL. Has to be public.'),
+    "polling_min": Config(DEFAULT_POLLING, 'Polling rate, in minutes. The script will be looking for changes to the youtube playlist every polling rate minutes.')
 }
 
 def check_playlist_for_new_vids(playlist_url, database_location):
@@ -69,8 +71,10 @@ def download_videos_from_playlist(videos_url, destination):
         youtube_vid = YouTube(video.url)
         thumbnail_url = youtube_vid.thumbnail_url
         dled_file = youtube_vid.streams.get_audio_only().download(output_path=destination)
+
         path = f'{destination}/{video.title}'
         path = os.path.abspath(path)
+
         os.rename(dled_file, f'{path}.mp4')
 
         if not os.path.exists(dir_name):
@@ -144,30 +148,40 @@ if __name__ == "__main__":
     for config_name, config_obj in config.items():
         val = args_dict[config_name]
         config_obj.val = val
+
     min_ip = int(config["range_ip_min"].val)
     max_ip = int(config["range_ip_max"].val)
-    ftp = None
-    for i in range(min_ip, max_ip + 1):
-        try:
-            ftp = ftplib.FTP()
-            ftp.connect(f'192.168.0.{str(i)}', int(config["port"].val))
-            ftp.login()
-            break
-        except Exception as e:
-            print(e)
-            ftp = None
-    if ftp is None:
-        sys.exit("The ftp connection failed. Either the ftp server is not accessible or the configuration is incorrect. Fix the issue and run the script later.")
 
-    videos_to_add = check_playlist_for_new_vids(config["yt_playlist_url"].val, config["database_location"].val)
+    if min_ip < 0 or min_ip > 255:
+        sys.exit("The minimum ip should be between 0 and 255. Please enter a valid value")
+    if max_ip < 0 or min_ip > 255:
+        sys.exit("The maximum ip should be between 0 and 255. Please enter a valid value")
 
-    if not os.path.exists(CACHE):
-        os.mkdir(CACHE)
+    polling_rate = int(config["polling_min"].val)
 
-    videos_downloaded = download_videos_from_playlist(videos_to_add, CACHE)
-    videos_moved = move_to_local(videos_downloaded, config["local_music_folder"].val)
-    move_to_ftp(ftp, config["remote_music_folder"].val, videos_moved)
+    while True:
+        ftp = None
+        for i in range(min_ip, max_ip + 1):
+            try:
+                ftp = ftplib.FTP()
+                ftp.connect(f'192.168.0.{str(i)}', int(config["port"].val))
+                ftp.login()
+                break
+            except Excptioen as e:
+                ftp = None
+        if ftp is not None:
+            videos_to_add = check_playlist_for_new_vids(config["yt_playlist_url"].val, config["database_location"].val)
 
-    save_to_db(config["database_location"].val, videos_to_add)
-    
-    ftp.close()
+            if not os.path.exists(CACHE):
+                os.mkdir(CACHE)
+
+            videos_downloaded = download_videos_from_playlist(videos_to_add, CACHE)
+            videos_moved = move_to_local(videos_downloaded, config["local_music_folder"].val)
+            move_to_ftp(ftp, config["remote_music_folder"].val, videos_moved)
+
+            save_to_db(config["database_location"].val, videos_to_add)
+        else:
+            print("The ftp connection failed. Either the ftp server is not accessible or the configuration is incorrect. Fix the issue and run the script later.")
+
+        ftp.close()
+        time.sleep(polling_rate * 60) #wait until the next polling
