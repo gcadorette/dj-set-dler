@@ -1,0 +1,13 @@
+[Unit]
+Description=This service polls every 30min to check if there is an update to my youtube music playlist and, if needed, it downloads the new songs and adds it to my music folder on this computer and on my phone.
+
+[Service]
+User={your user}
+WorkingDirectory={the install folder of your script}
+ExecStart=/usr/bin/python3 dj-set-dler.py
+# optional items below
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

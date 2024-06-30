@@ -159,6 +159,10 @@ if __name__ == "__main__":
 
     polling_rate = int(config["polling_min"].val)
 
+    if not os.path.exists(config["database_location"]):
+        with open(config["database_location"], "w", encoding="UTF-8") as f:
+            f.write("")
+
     while True:
         ftp = None
         for i in range(min_ip, max_ip + 1):
