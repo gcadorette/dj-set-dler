@@ -1,0 +1,1 @@
+Python script used to download songs from a youtube playlist and place it, in the right format, in a local folder and on an FTP server. Basically done to not do it manually every time I find a nice dj set on youtube dot com
