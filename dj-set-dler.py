@@ -1,4 +1,4 @@
-import argparse, sys, os, re, ftplib, requests
+import argparse, sys, os, re, ftplib, requests, time
 from pytube import Playlist, YouTube
 import ffmpeg
 import music_tag
@@ -167,7 +167,7 @@ if __name__ == "__main__":
                 ftp.connect(f'192.168.0.{str(i)}', int(config["port"].val))
                 ftp.login()
                 break
-            except Excptioen as e:
+            except Exception as e:
                 ftp = None
         if ftp is not None:
             videos_to_add = check_playlist_for_new_vids(config["yt_playlist_url"].val, config["database_location"].val)
@@ -180,8 +180,8 @@ if __name__ == "__main__":
             move_to_ftp(ftp, config["remote_music_folder"].val, videos_moved)
 
             save_to_db(config["database_location"].val, videos_to_add)
+            ftp.close()
         else:
             print("The ftp connection failed. Either the ftp server is not accessible or the configuration is incorrect. Fix the issue and run the script later.")
 
-        ftp.close()
         time.sleep(polling_rate * 60) #wait until the next polling
