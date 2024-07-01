@@ -159,8 +159,8 @@ if __name__ == "__main__":
 
     polling_rate = int(config["polling_min"].val)
 
-    if not os.path.exists(config["database_location"]):
-        with open(config["database_location"], "w", encoding="UTF-8") as f:
+    if not os.path.exists(config["database_location"].val):
+        with open(config["database_location"].val, "w", encoding="UTF-8") as f:
             f.write("")
 
     while True:

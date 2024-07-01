@@ -23,6 +23,10 @@ To enable it on boot
 To check the service status
 `sudo systemctl status dj-set-updater.service`
 
+To examine the logs:
+`sudo journalctl - u dj-set-updater.service -e` 
+(the -e tag here is to jump at the end of the logs)
+
 Please note that some informations must be changed in the `dj-set-updater.service` file must be changed before it can be used as a service.
 
 - The user must be changed as the user of your machine
