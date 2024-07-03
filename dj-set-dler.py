@@ -1,5 +1,6 @@
 import argparse, sys, os, re, ftplib, requests, time
 from pytube import Playlist, YouTube
+from pytube.innertube import _default_clients
 import ffmpeg
 import music_tag
 import emoji
@@ -13,6 +14,7 @@ DEFAULT_REMOTE = "Music"
 DEFAULT_YT_PLAYLIST_URL = "https://www.youtube.com/playlist?list=PLMr2Sm7Ci5lX5kMzWQ_f7zmAhIXmN3iua"
 DEFAULT_POLLING = 30
 CACHE = "./.cache"
+_default_clients["ANDROID_MUSIC"] = _default_clients["ANDROID_CREATOR"]
 
 class Config:
     def __init__(self, default_val, help):
@@ -188,4 +190,5 @@ if __name__ == "__main__":
         else:
             print("The ftp connection failed. Either the ftp server is not accessible or the configuration is incorrect. Fix the issue and run the script later.")
 
+        print(f"sleeping for {polling_rate} minutes.,,. zzz,..,")
         time.sleep(polling_rate * 60) #wait until the next polling
