@@ -5,6 +5,9 @@ import ffmpeg
 import music_tag
 import emoji
 
+from pytube import cipher
+import re
+
 DEFAULT_DB_LOCATION = './db.csv'
 DEFAULT_RANGE_IP_MIN = '67'
 DEFAULT_RANGE_IP_MAX = '70'
@@ -38,6 +41,59 @@ config = {
     "yt_playlist_url": Config(DEFAULT_YT_PLAYLIST_URL, 'The Youtube playlist URL. Has to be public.'),
     "polling_min": Config(DEFAULT_POLLING, 'Polling rate, in minutes. The script will be looking for changes to the youtube playlist every polling rate minutes.')
 }
+
+# Source: https://github.com/pytube/pytube/issues/1954
+# It replaces the get_throttling_function_name from pytube
+# Necessary since Youtube changed some things on their end which breaks the regex that they use
+# Will revert back to using the library's function once it's patched
+
+
+def get_throttling_function_name(js: str) -> str:
+    """Extract the name of the function that computes the throttling parameter.
+
+    :param str js:
+        The contents of the base.js asset file.
+    :rtype: str
+    :returns:
+        The name of the function used to compute the throttling parameter.
+    """
+    function_patterns = [
+        # https://github.com/ytdl-org/youtube-dl/issues/29326#issuecomment-865985377
+        # https://github.com/yt-dlp/yt-dlp/commit/48416bc4a8f1d5ff07d5977659cb8ece7640dcd8
+        # var Bpa = [iha];
+        # ...
+        # a.C && (b = a.get("n")) && (b = Bpa[0](b), a.set("n", b),
+        # Bpa.length || iha("")) }};
+        # In the above case, `iha` is the relevant function name
+        r'a\.[a-zA-Z]\s*&&\s*\([a-z]\s*=\s*a\.get\("n"\)\)\s*&&\s*'
+        r'\([a-z]\s*=\s*([a-zA-Z0-9$]+)(\[\d+\])?\([a-z]\)',
+        r'\([a-z]\s*=\s*([a-zA-Z0-9$]+)(\[\d+\])\([a-z]\)',
+    ]
+    for pattern in function_patterns:
+        regex = re.compile(pattern)
+        function_match = regex.search(js)
+        if function_match:
+            if len(function_match.groups()) == 1:
+                return function_match.group(1)
+            idx = function_match.group(2)
+            if idx:
+                idx = idx.strip("[]")
+                array = re.search(
+                    r'var {nfunc}\s*=\s*(\[.+?\]);'.format(
+                        nfunc=re.escape(function_match.group(1))),
+                    js
+                )
+                if array:
+                    array = array.group(1).strip("[]").split(",")
+                    array = [x.strip() for x in array]
+                    return array[int(idx)]
+
+    raise RegexMatchError(
+        caller="get_throttling_function_name", pattern="multiple"
+    )
+
+cipher.get_throttling_function_name = get_throttling_function_name
+
 
 def check_playlist_for_new_vids(playlist_url, database_location):
     dj_sets = []
